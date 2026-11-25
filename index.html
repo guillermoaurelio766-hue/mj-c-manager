@@ -393,7 +393,10 @@ async function addSongs() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ uris: batch })
+          body: JSON.stringify({
+  uris: batch,
+  position: Math.max(0, currentItems.length - 1) + i
+})
         }
       );
     }
