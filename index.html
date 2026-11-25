@@ -1,0 +1,135 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MJ C Manager</title>
+<style>
+body{background:#111;color:white;font-family:Arial;text-align:center;padding:20px}
+main{max-width:500px;margin:auto;background:#222;padding:24px;border-radius:16px}
+button{background:#1ed760;border:0;padding:14px 22px;border-radius:25px;font-weight:bold;margin:12px}
+input,textarea{width:95%;padding:12px;margin:10px 0;border-radius:8px;box-sizing:border-box}
+</style>
+</head>
+<body>
+<main>
+<h1>👑 MJ C Manager</h1>
+<p>Tu administrador musical de Michael Jackson</p>
+<button id="login">Conectar Spotify</button>
+<section id="manager" hidden>
+<p>Playlist MJ C</p>
+<input id="playlist" value="1DMcEcjwR8WI3AocSz1FgZ">
+<p>Pega los enlaces de las canciones, uno por línea:</p>
+<textarea id="songs" rows="7"></textarea>
+<button id="add">Agregar canciones</button>
+</section>
+<p id="status">Esperando conexión...</p>
+</main>
+<script>
+const CLIENT_ID="22f2dd29d5f44c3ba77c6a26c1bde6ea";
+const REDIRECT_URI="https://guillermoaurelio766-hue.github.io/mj-c-manager/";
+const SCOPES=[
+"playlist-read-private",
+"playlist-read-collaborative",
+"playlist-modify-public",
+"playlist-modify-private"
+].join(" ");
+
+const status=document.getElementById("status");
+
+function randomString(n){
+ const a=crypto.getRandomValues(new Uint8Array(n));
+ return Array.from(a,x=>"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"[x%62]).join("");
+}
+
+async function hash(v){
+ const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v));
+ return btoa(String.fromCharCode(...new Uint8Array(b)))
+ .replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+}
+
+async function login(){
+ const verifier=randomString(64);
+ const state=randomString(16);
+ sessionStorage.setItem("verifier",verifier);
+ sessionStorage.setItem("state",state);
+ const challenge=await hash(verifier);
+ const p=new URLSearchParams({
+ client_id:CLIENT_ID,
+ response_type:"code",
+ redirect_uri:REDIRECT_URI,
+ scope:SCOPES,
+ state,
+ code_challenge_method:"S256",
+ code_challenge:challenge
+ });
+ location.href="https://accounts.spotify.com/authorize?"+p;
+}
+
+async function initialize(){
+ const p=new URLSearchParams(location.search);
+ const code=p.get("code");
+ if(!code)return;
+ if(p.get("state")!==sessionStorage.getItem("state")){
+ status.textContent="Error de autorización.";
+ return;
+ }
+ status.textContent="Conectando...";
+ try{
+ const r=await fetch("https://accounts.spotify.com/api/token",{
+ method:"POST",
+ headers:{"Content-Type":"application/x-www-form-urlencoded"},
+ body:new URLSearchParams({
+ client_id:CLIENT_ID,
+ grant_type:"authorization_code",
+ code,
+ redirect_uri:REDIRECT_URI,
+ code_verifier:sessionStorage.getItem("verifier")
+ })
+ });
+ const d=await r.json();
+ if(!r.ok)throw Error(d.error_description||d.error);
+ sessionStorage.setItem("token",d.access_token);
+ history.replaceState({},document.title,REDIRECT_URI);
+ document.getElementById("manager").hidden=false;
+ status.textContent="¡Spotify conectado!";
+ }catch(e){status.textContent="Error: "+e.message;}
+}
+
+async function addSongs(){
+ const token=sessionStorage.getItem("token");
+ const playlist=document.getElementById("playlist").value.trim();
+ const lines=document.getElementById("songs").value.split("\n");
+ const uris=lines.map(x=>{
+ const m=x.trim().match(/(?:track\/|spotify:track:)([A-Za-z0-9]+)/);
+ return m?"spotify:track:"+m[1]:null;
+ }).filter(Boolean);
+
+ if(!uris.length){status.textContent="No encontré enlaces válidos.";return;}
+ if(!confirm("¿Agregar "+uris.length+" canciones a MJ C?"))return;
+
+ status.textContent="Agregando canciones...";
+ try{
+ for(let i=0;i<uris.length;i+=100){
+ const r=await fetch("https://api.spotify.com/v1/playlists/"+encodeURIComponent(playlist)+"/items",{
+ method:"POST",
+ headers:{
+ Authorization:"Bearer "+token,
+ "Content-Type":"application/json"
+ },
+ body:JSON.stringify({uris:uris.slice(i,i+100)})
+ });
+ const d=await r.json();
+ if(!r.ok)throw Error(d.error?.message||"Error de Spotify");
+ }
+ status.textContent="¡Canciones agregadas a MJ C!";
+ }catch(e){status.textContent="Error: "+e.message;}
+}
+
+document.getElementById("login").onclick=login;
+document.getElementById("add").onclick=addSongs;
+initialize();
+</script>
+</body>
+</html>
